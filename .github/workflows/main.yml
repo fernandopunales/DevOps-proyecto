@@ -8,11 +8,6 @@ jobs:
     name: Build & Push Images
     runs-on: ubuntu-latest
 
-    outputs:
-      API_IMAGE: ${{ steps.api.outputs.API_IMAGE }}
-      PRODUCT_IMAGE: ${{ steps.product.outputs.PRODUCT_IMAGE }}
-      INVENTORY_IMAGE: ${{ steps.inventory.outputs.INVENTORY_IMAGE }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,32 +25,33 @@ jobs:
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ secrets.ECR_API_URL }}
 
-      # API Gateway
-      - name: Build & Push API Gateway Image
-        id: api
+      - name: Build images and save outputs
+        id: build_all
         run: |
           TAG=${GITHUB_SHA::8}
+
+          # API
           docker build -t ${{ secrets.ECR_API_URL }}:$TAG ./api-gateway
           docker push ${{ secrets.ECR_API_URL }}:$TAG
-          echo "API_IMAGE=${{ secrets.ECR_API_URL }}:$TAG" >> $GITHUB_OUTPUT
 
-      # Product
-      - name: Build & Push Product Image
-        id: product
-        run: |
-          TAG=${GITHUB_SHA::8}
+          # PRODUCT
           docker build -t ${{ secrets.ECR_PRODUCT_URL }}:$TAG ./product-service
           docker push ${{ secrets.ECR_PRODUCT_URL }}:$TAG
-          echo "PRODUCT_IMAGE=${{ secrets.ECR_PRODUCT_URL }}:$TAG" >> $GITHUB_OUTPUT
 
-      # Inventory
-      - name: Build & Push Inventory Image
-        id: inventory
-        run: |
-          TAG=${GITHUB_SHA::8}
+          # INVENTORY
           docker build -t ${{ secrets.ECR_INVENTORY_URL }}:$TAG ./inventory-service
           docker push ${{ secrets.ECR_INVENTORY_URL }}:$TAG
-          echo "INVENTORY_IMAGE=${{ secrets.ECR_INVENTORY_URL }}:$TAG" >> $GITHUB_OUTPUT
+
+          # Guardamos las imágenes en un archivo y lo subimos como artifact
+          echo "API_IMAGE=${{ secrets.ECR_API_URL }}:$TAG" >> image-outputs.env
+          echo "PRODUCT_IMAGE=${{ secrets.ECR_PRODUCT_URL }}:$TAG" >> image-outputs.env
+          echo "INVENTORY_IMAGE=${{ secrets.ECR_INVENTORY_URL }}:$TAG" >> image-outputs.env
+
+      - name: Upload image outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-outputs
+          path: image-outputs.env
 
   deploy:
     name: Deploy to ECS
@@ -66,6 +62,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download image outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: image-outputs
+
+      - name: Load variables
+        run: |
+          source image-outputs.env
+          echo "API_IMAGE=$API_IMAGE"
+          echo "PRODUCT_IMAGE=$PRODUCT_IMAGE"
+          echo "INVENTORY_IMAGE=$INVENTORY_IMAGE"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -75,13 +83,12 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Prepare Task Definition
-        id: prepare
         run: |
           cp infra/ecs-task/taskdef.json taskdef.json
 
-          sed -i "s|__API_IMAGE__|${{ needs.build_and_push.outputs.API_IMAGE }}|" taskdef.json
-          sed -i "s|__PRODUCT_IMAGE__|${{ needs.build_and_push.outputs.PRODUCT_IMAGE }}|" taskdef.json
-          sed -i "s|__INVENTORY_IMAGE__|${{ needs.build_and_push.outputs.INVENTORY_IMAGE }}|" taskdef.json
+          sed -i "s|__API_IMAGE__|$API_IMAGE|" taskdef.json
+          sed -i "s|__PRODUCT_IMAGE__|$PRODUCT_IMAGE|" taskdef.json
+          sed -i "s|__INVENTORY_IMAGE__|$INVENTORY_IMAGE|" taskdef.json
 
       - name: Register Task Definition
         id: reg
@@ -101,5 +108,4 @@ jobs:
 
       - name: Completed
         run: echo "🚀 Deploy ejecutado correctamente."
-
 
