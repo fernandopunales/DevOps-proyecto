@@ -26,7 +26,7 @@ jobs:
           unzip -q /tmp/sonar.zip -d /tmp
           echo "/tmp/sonar-scanner-4.8.0.2856-linux/bin" >> $GITHUB_PATH
 
-      - name: Run SonarCloud Scan
+      - name: Run SonarCloud Scan (Debug)
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
@@ -37,7 +37,8 @@ jobs:
             -Dsonar.projectKey=$SONAR_PROJECT_KEY \
             -Dsonar.organization=$SONAR_ORGANIZATION \
             -Dsonar.sources=api-gateway,product-service,inventory-service \
-            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.host.url=https://sonarcloud.io \
+            -X   # Modo debug para ver logs completos
 
   python_test:
     name: Python Health Test
@@ -58,7 +59,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest fastapi[test] httpx
 
-      - name: Run Product Service Tests
+      - name: Run Product Service Tests (Verbose)
         working-directory: ./
         run: |
-          pytest tests/test_product_service.py
+          pytest -v tests/test_product_service.py   # Modo verbose para detalle de cada test
