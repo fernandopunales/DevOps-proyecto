@@ -15,7 +15,7 @@ jobs:
       - name: Setup Java (Sonar)
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'  # <--- obligatorio
+          distribution: temurin
           java-version: '11'
 
       - name: Install Sonar and Tools
@@ -36,7 +36,8 @@ jobs:
             -Dsonar.login=$SONAR_TOKEN \
             -Dsonar.projectKey=$SONAR_PROJECT_KEY \
             -Dsonar.organization=$SONAR_ORGANIZATION \
-            -Dsonar.sources=api-gateway,product-service,inventory-service
+            -Dsonar.sources=api-gateway,product-service,inventory-service \
+            -Dsonar.host.url=https://sonarcloud.io
 
   python_test:
     name: Python Health Test
@@ -58,6 +59,6 @@ jobs:
           pip install pytest fastapi[test] httpx
 
       - name: Run Product Service Tests
-        working-directory: ./ 
+        working-directory: ./
         run: |
           pytest tests/test_product_service.py
