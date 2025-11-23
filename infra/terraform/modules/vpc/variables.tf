@@ -8,11 +8,6 @@ variable "public_subnet_cidrs" {
   type        = list(string)
 }
 
-variable "private_subnet_cidrs" {
-  description = "CIDRs for private subnets"
-  type        = list(string)
-}
-
 variable "environment" {
   description = "Environment name"
   type        = string
