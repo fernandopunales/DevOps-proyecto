@@ -5,9 +5,7 @@
   "cpu": "1024",
   "memory": "8192",
   "executionRoleArn": "arn:aws:iam::851725322802:role/LabRole",
-
   "containerDefinitions": [
-
     {
       "name": "postgres",
       "image": "postgres:15-alpine",
@@ -15,16 +13,20 @@
       "cpu": 256,
       "memory": 2048,
       "portMappings": [
-        {
-          "containerPort": 5432,
-          "protocol": "tcp"
-        }
+        { "containerPort": 5432, "hostPort": 5432, "protocol": "tcp" }
       ],
       "environment": [
         { "name": "POSTGRES_USER", "value": "admin" },
         { "name": "POSTGRES_PASSWORD", "value": "admin123" },
         { "name": "POSTGRES_DB", "value": "microservices_db" }
       ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "pg_isready -U admin -d microservices_db"],
+        "interval": 10,
+        "timeout": 5,
+        "retries": 5,
+        "startPeriod": 10
+      },
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
@@ -34,7 +36,6 @@
         }
       }
     },
-
     {
       "name": "redis",
       "image": "redis:7-alpine",
@@ -42,11 +43,15 @@
       "cpu": 128,
       "memory": 1024,
       "portMappings": [
-        {
-          "containerPort": 6379,
-          "protocol": "tcp"
-        }
+        { "containerPort": 6379, "hostPort": 6379, "protocol": "tcp" }
       ],
+      "healthCheck": {
+        "command": ["CMD", "redis-cli", "ping"],
+        "interval": 10,
+        "timeout": 3,
+        "retries": 5,
+        "startPeriod": 5
+      },
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
@@ -56,7 +61,6 @@
         }
       }
     },
-
     {
       "name": "product",
       "image": "${PRODUCT_IMAGE}",
@@ -64,18 +68,19 @@
       "cpu": 256,
       "memory": 1024,
       "portMappings": [
-        {
-          "containerPort": 8001,
-          "protocol": "tcp"
-        }
+        { "containerPort": 8001, "hostPort": 8001, "protocol": "tcp" }
       ],
       "environment": [
-        { "name": "DATABASE_URL", "value": "postgresql://admin:admin123@postgres:5432/microservices_db" },
+        {
+          "name": "DATABASE_URL",
+          "value": "postgresql://admin:admin123@postgres:5432/microservices_db"
+        },
         { "name": "REDIS_URL", "value": "redis://redis:6379" }
       ],
-      "dependsOn": [
-        { "containerName": "postgres", "condition": "START" },
-        { "containerName": "redis", "condition": "START" }
+      "entryPoint": [
+        "sh",
+        "-c",
+        "until nc -z postgres 5432 && nc -z redis 6379; do echo 'Esperando a DB/Redis...'; sleep 3; done; uvicorn main:app --host 0.0.0.0 --port 8001"
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -86,7 +91,6 @@
         }
       }
     },
-
     {
       "name": "inventory",
       "image": "${INVENTORY_IMAGE}",
@@ -94,18 +98,19 @@
       "cpu": 256,
       "memory": 1024,
       "portMappings": [
-        {
-          "containerPort": 8002,
-          "protocol": "tcp"
-        }
+        { "containerPort": 8002, "hostPort": 8002, "protocol": "tcp" }
       ],
       "environment": [
-        { "name": "DATABASE_URL", "value": "postgres://admin:admin123@postgres:5432/microservices_db?sslmode=disable" },
+        {
+          "name": "DATABASE_URL",
+          "value": "postgres://admin:admin123@postgres:5432/microservices_db?sslmode=disable"
+        },
         { "name": "REDIS_URL", "value": "redis:6379" }
       ],
-      "dependsOn": [
-        { "containerName": "postgres", "condition": "START" },
-        { "containerName": "redis", "condition": "START" }
+      "entryPoint": [
+        "sh",
+        "-c",
+        "until nc -z postgres 5432 && nc -z redis 6379; do echo 'Esperando a DB/Redis...'; sleep 3; done; ./inventory-service"
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -116,7 +121,6 @@
         }
       }
     },
-
     {
       "name": "api-gateway",
       "image": "${APIGATEWAY_IMAGE}",
@@ -124,19 +128,17 @@
       "cpu": 128,
       "memory": 1024,
       "portMappings": [
-        {
-          "containerPort": 8000,
-          "protocol": "tcp"
-        }
+        { "containerPort": 8000, "hostPort": 8000, "protocol": "tcp" }
       ],
       "environment": [
         { "name": "PRODUCT_SERVICE_URL", "value": "http://product:8001" },
         { "name": "INVENTORY_SERVICE_URL", "value": "http://inventory:8002" },
         { "name": "REDIS_URL", "value": "redis:6379" }
       ],
-      "dependsOn": [
-        { "containerName": "product", "condition": "START" },
-        { "containerName": "inventory", "condition": "START" }
+      "entryPoint": [
+        "sh",
+        "-c",
+        "until nc -z product 8001 && nc -z inventory 8002; do echo 'Esperando a Product/Inventory...'; sleep 3; done; ./api-gateway"
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -147,6 +149,5 @@
         }
       }
     }
-
   ]
 }
