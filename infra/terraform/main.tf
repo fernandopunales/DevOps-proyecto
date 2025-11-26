@@ -65,7 +65,7 @@ module "ecs_service_core" {
   service_name      = "${var.environment}-core-service"   # service único que correrá las 5 containers cuando pipeline lo actualice
   cluster_id        = module.ecs_cluster.cluster_id
   task_definition_arn = ""   # vacío por ahora (pipeline registrará y hará update later)
-  desired_count     = 0
+  desired_count     = 1
   subnet_ids        = module.vpc.public_subnet_ids
   security_group_id = module.security_group.ecs_sg_id
   assign_public_ip  = true
