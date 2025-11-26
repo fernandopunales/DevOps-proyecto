@@ -13,35 +13,67 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # opcional
           aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - name: Set registry and repo names
+        id: vars
+        run: |
+          echo "REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "ACCOUNT_ID=${{ steps.account.outputs.ACCOUNT_ID }}" >> $GITHUB_ENV
+
+          # Repositorios: pon los nombres de repo (sin account ni region)
+          echo "API_REPO=api-gateway" >> $GITHUB_ENV
+          echo "PRODUCT_REPO=product-service" >> $GITHUB_ENV
+          echo "INVENTORY_REPO=inventory-service" >> $GITHUB_ENV
+
+          # Registry base
+          echo "ECR_REGISTRY=${{ steps.account.outputs.ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_ENV
+
+      - name: Ensure ECR repositories exist (safe - no-op si ya existen)
+        run: |
+          aws ecr describe-repositories --repository-names $API_REPO >/dev/null 2>&1 || aws ecr create-repository --repository-name $API_REPO
+          aws ecr describe-repositories --repository-names $PRODUCT_REPO >/dev/null 2>&1 || aws ecr create-repository --repository-name $PRODUCT_REPO
+          aws ecr describe-repositories --repository-names $INVENTORY_REPO >/dev/null 2>&1 || aws ecr create-repository --repository-name $INVENTORY_REPO
 
       - name: Login to ECR
         run: |
+          echo "Logging into ECR registry: $ECR_REGISTRY"
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
-          | docker login --username AWS --password-stdin ${{ secrets.ECR_API_URL }}
+            | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-      - name: Build images and save outputs
+      - name: Build images and push
         id: build_all
         run: |
           TAG=${GITHUB_SHA::8}
+          API_IMAGE="$ECR_REGISTRY/$API_REPO:$TAG"
+          PRODUCT_IMAGE="$ECR_REGISTRY/$PRODUCT_REPO:$TAG"
+          INVENTORY_IMAGE="$ECR_REGISTRY/$INVENTORY_REPO:$TAG"
 
-          docker build -t ${{ secrets.ECR_API_URL }}:$TAG ./api-gateway
-          docker push ${{ secrets.ECR_API_URL }}:$TAG
+          echo "Building $API_IMAGE"
+          docker build -t "$API_IMAGE" ./api-gateway
+          docker push "$API_IMAGE"
 
-          docker build -t ${{ secrets.ECR_PRODUCT_URL }}:$TAG ./product-service
-          docker push ${{ secrets.ECR_PRODUCT_URL }}:$TAG
+          echo "Building $PRODUCT_IMAGE"
+          docker build -t "$PRODUCT_IMAGE" ./product-service
+          docker push "$PRODUCT_IMAGE"
 
-          docker build -t ${{ secrets.ECR_INVENTORY_URL }}:$TAG ./inventory-service
-          docker push ${{ secrets.ECR_INVENTORY_URL }}:$TAG
+          echo "Building $INVENTORY_IMAGE"
+          docker build -t "$INVENTORY_IMAGE" ./inventory-service
+          docker push "$INVENTORY_IMAGE"
 
-          echo "API_IMAGE=${{ secrets.ECR_API_URL }}:$TAG" >> image-outputs.env
-          echo "PRODUCT_IMAGE=${{ secrets.ECR_PRODUCT_URL }}:$TAG" >> image-outputs.env
-          echo "INVENTORY_IMAGE=${{ secrets.ECR_INVENTORY_URL }}:$TAG" >> image-outputs.env
+          echo "API_IMAGE=$API_IMAGE" >> image-outputs.env
+          echo "PRODUCT_IMAGE=$PRODUCT_IMAGE" >> image-outputs.env
+          echo "INVENTORY_IMAGE=$INVENTORY_IMAGE" >> image-outputs.env
 
       - name: Upload image outputs
         uses: actions/upload-artifact@v4
@@ -59,7 +91,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
