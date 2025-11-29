@@ -64,7 +64,7 @@ terraform {
 
   backend "s3" {
     bucket         = "bucket-stockwiz-tf"
-    key            = "env/terraform.tfstate"   
+    key            = "root/terraform.tfstate"   
     region         = "us-east-1"               
     dynamodb_table = "bucket-stockwiz-tf-lock" 
     encrypt        = true
