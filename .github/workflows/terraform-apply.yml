@@ -17,19 +17,16 @@ jobs:
   terraform:
     name: Terraform Apply
     runs-on: ubuntu-latest
+
     steps:
-      # Obtener el código
-      - name: Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Configurar Terraform (misma versión que tu local)
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.13.4
 
-      # Configurar credenciales de AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -38,42 +35,41 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # Inicializar Terraform
       - name: Terraform Init
         working-directory: infra/terraform
         run: terraform init -input=false
 
-      # Crear plan
       - name: Terraform Plan
         working-directory: infra/terraform
-        run: terraform plan -var-file="${{ github.event.inputs.environment }}.tfvars" -out=tfplan
+        run: terraform plan -var-file="dev.tfvars" -var="sender_email=${{ secrets.SENDER_EMAIL }}" -var="app_password=${{ secrets.APP_PASSWORD }}" -out=tfplan
 
-      # Aplicar plan automáticamente
       - name: Terraform Apply
         working-directory: infra/terraform
         run: terraform apply -auto-approve tfplan
 
-      # ===================================================
-      # OBTENER OUTPUTS Y ACTUALIZAR SECRETS DE GITHUB
-      # ===================================================
       - name: Exportar ECR URLs a secretos de GitHub
         working-directory: infra/terraform
         run: |
-          # Obtener outputs de Terraform en JSON
-          OUTPUTS=$(terraform output -json)
+          echo "Obteniendo outputs individuales (limpio con grep)..."
 
-          # Extraer cada URL
-          API=$(echo $OUTPUTS      | jq -r '.ecr_urls.value.apigateway')
-          PRODUCT=$(echo $OUTPUTS  | jq -r '.ecr_urls.value.product')
-          INVENTORY=$(echo $OUTPUTS| jq -r '.ecr_urls.value.inventory')
+          API=$(terraform output ecr_api_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
+          PRODUCT=$(terraform output ecr_product_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
+          INVENTORY=$(terraform output ecr_inventory_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
 
-          echo "URL API Gateway: $API"
-          echo "URL Product: $PRODUCT"
-          echo "URL Inventory: $INVENTORY"
+          echo "=== DEBUG CLEAN ==="
+          echo "API: '$API'"
+          echo "PRODUCT: '$PRODUCT'"
+          echo "INVENTORY: '$INVENTORY'"
+          echo "==================="
 
-          # Actualizar secretos de GitHub
-          gh secret set ECR_API_URL --body "$API"
-          gh secret set ECR_PRODUCT_URL --body "$PRODUCT"
+          echo "Actualizando secretos de GitHub..."
+          gh secret set ECR_API_URL       --body "$API"
+          gh secret set ECR_PRODUCT_URL   --body "$PRODUCT"
           gh secret set ECR_INVENTORY_URL --body "$INVENTORY"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_PAT }}
+
+      - name: Ejecutar Lambda vía curl
+        working-directory: infra/terraform
+        run: | 
+          LAMBDA_URL=$(terraform output -raw lambda_url | grep -oE "^https://.*\.lambda-url\..*\.on\.aws/?$") curl -X POST "$LAMBDA_URL"
