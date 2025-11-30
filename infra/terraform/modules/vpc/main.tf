@@ -63,7 +63,7 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket         = "fer-bucket-stockwiz-tf"
+    bucket         = "bucket-stockwiz-tf"
     key            = "root/terraform.tfstate"   
     region         = "us-east-1"               
     dynamodb_table = "bucket-stockwiz-tf-lock" 
