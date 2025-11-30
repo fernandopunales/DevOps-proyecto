@@ -30,10 +30,34 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
+          # Si usás access keys (cross-account), mantené estos valores:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}    # opcional
           aws-region: ${{ secrets.AWS_REGION }}
+
+          # --- Alternativa recomendada: usar role-to-assume ---
+          # Si preferís que GitHub Actions asuma un role (recomendado cuando el bucket
+          # está en otra cuenta o la identidad que tenés local no tiene permisos), 
+          # comentá las líneas de arriba y descomentá las de abajo:
+          # role-to-assume: arn:aws:iam::111122223333:role/TerraformRunnerRole
+          # role-session-name: github-actions
+          # aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Debug - AWS identity & S3 access (helpful to see who we are)
+        working-directory: infra/terraform
+        run: |
+          echo "== AWS Caller Identity =="
+          aws sts get-caller-identity || true
+
+          echo "== Try head-object on backend key =="
+          # No fallaré el job por ahora, solo mostramos el error; quitar "|| true" si querés que falle.
+          aws s3api head-object --bucket bucket-stockwiz-tf --key root/terraform.tfstate || true
+
+          echo "== List objects root/ prefix =="
+          aws s3api list-objects-v2 --bucket bucket-stockwiz-tf --prefix root/ || true
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: infra/terraform
@@ -41,7 +65,7 @@ jobs:
 
       - name: Terraform Plan
         working-directory: infra/terraform
-        run: terraform plan -var-file="dev.tfvars" -var="sender_email=${{ secrets.SENDER_EMAIL }}" -var="app_password=${{ secrets.APP_PASSWORD }}" -out=tfplan
+        run: terraform plan -var-file="${{ github.event.inputs.environment }}.tfvars" -var="sender_email=${{ secrets.SENDER_EMAIL }}" -var="app_password=${{ secrets.APP_PASSWORD }}" -out=tfplan
 
       - name: Terraform Apply
         working-directory: infra/terraform
@@ -51,7 +75,6 @@ jobs:
         working-directory: infra/terraform
         run: |
           echo "Obteniendo outputs individuales (limpio con grep)..."
-
           API=$(terraform output ecr_api_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
           PRODUCT=$(terraform output ecr_product_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
           INVENTORY=$(terraform output ecr_inventory_url | grep -oE "[0-9]+\.dkr\.ecr\.[^ ]+")
@@ -69,7 +92,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_PAT }}
 
-      - name: Ejecutar Lambda vía curl
+      - name: Ejecutar Lambda vía curl (corregido)
         working-directory: infra/terraform
-        run: | 
-          LAMBDA_URL=$(terraform output -raw lambda_url | grep -oE "^https://.*\.lambda-url\..*\.on\.aws/?$") curl -X POST "$LAMBDA_URL"
+        run: |
+          LAMBDA_URL=$(terraform output -raw lambda_url | grep -oE "^https://.*\.lambda-url\..*\.on\.aws(/.*)?$")
+          if [ -z "$LAMBDA_URL" ]; then
+            echo "Lambda URL vacía, no se ejecuta curl"
+            exit 0
+          fi
+          echo "Invocando $LAMBDA_URL"
+          curl -sS -X POST "$LAMBDA_URL" -H "Content-Type: application/json" -d '{}'
